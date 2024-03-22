@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
-import Login from './routes/Login.mjs';
+import Login from './routes/Login.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
