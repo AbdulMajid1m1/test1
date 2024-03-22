@@ -1,5 +1,5 @@
 import express from 'express';
-import { SignIn,signUp,logout,refreshAccessToken} from '../controllers/Login.cjs';
+import { SignIn,signUp,logout,refreshAccessToken} from '../controllers/Login.mjs';
 
 import { auth } from '../middleware/auth.js';
 import passport from "../utils/passportConfig.js";
