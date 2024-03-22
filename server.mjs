@@ -6,14 +6,8 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { PDFDocument } from 'pdf-lib';
-
 
 import Login from './routes/Login.mjs';
-
-
-
-
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,13 +26,7 @@ const connect = async () => {
 };
 
 const allowedOrigins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "https://attract-game.vercel.app",
-    "https://attractgame.com",
-    "https://attract-game-admin-panel.vercel.app",
-    "http://localhost:5173",
-    "https://noahai.ai",
+
     "http://localhost:3000"
 
 ];
