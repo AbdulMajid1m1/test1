@@ -25,7 +25,7 @@ export const SignIn = async (req, res, next) => {
     }
 
     try {
-   
+
         const { email, password } = req.body;
         const user = await User.findOne({ email: email.toLowerCase() });
 
@@ -38,11 +38,11 @@ export const SignIn = async (req, res, next) => {
         if (!isPasswordCorrect) {
             return next(createError(400, "Wrong credentials!"));
         }
-        const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000; 
+        const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000;
 
-        
+
         const accessToken = jwt.sign({ userId: user._id }, jwtKey, { expiresIn: '30d' });
-     
+
         const refreshToken = jwt.sign({ userId: user._id }, jwtKey, { expiresIn: refreshTokenExpiration });
 
 
@@ -96,6 +96,14 @@ export const signUp = async (req, res, next) => {
     }
 }
 
+export const get = async (req, res, next) => {
+    try {
+        const users = await User.find();
+        return res.status(200).json({ success: true, users });
+    } catch (err) {
+        next(err);
+    }
+}
 
 const tokenExpiration = 30 * 24 * 60 * 60 * 1000;
 
@@ -109,10 +117,10 @@ export const refreshAccessToken = async (req, res, next) => {
     try {
         const decodedRefreshToken = jwt.verify(refreshToken, process.env.jwtKey);
 
-        console.log("Decoded Refresh Token:", decodedRefreshToken); 
+        console.log("Decoded Refresh Token:", decodedRefreshToken);
 
         const user = await User.findById(decodedRefreshToken.userId);
-        console.log("User:", user); 
+        console.log("User:", user);
 
         if (!user) return next(createError(400, "User not found!"));
 
@@ -122,7 +130,7 @@ export const refreshAccessToken = async (req, res, next) => {
 
         return res.status(200).json({ success: true, message: "Token refreshed successfully" });
     } catch (err) {
-        console.error(err); 
+        console.error(err);
         return next(createError(400, "Invalid refresh token"));
     }
 };
