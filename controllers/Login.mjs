@@ -96,12 +96,13 @@ export const signUp = async (req, res, next) => {
     }
 }
 
-export const get = async (req, res, next) => {
+export const get = async (req, res) => {
     try {
         const users = await User.find();
         return res.status(200).json({ success: true, users });
     } catch (err) {
-        next(err);
+        // next(err);
+        console.log(err);
     }
 }
 
