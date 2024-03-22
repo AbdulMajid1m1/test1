@@ -4,7 +4,7 @@
 import jwt from 'jsonwebtoken';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
-import User from '../models/User.js';
+import User from '../models/User.cjs';
 import { sendOTPEmail } from './Email/sendOTPEmal.js';
 import { createError } from '../utils/createError.js';
 import dotenv from 'dotenv';
