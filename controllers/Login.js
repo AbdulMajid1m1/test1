@@ -9,7 +9,7 @@ import { createError } from '../utils/createError.js';
 import dotenv from 'dotenv';
 import { cookieOptions, userDataProperties } from '../utils/authUtilities.js';
 dotenv.config();
-const jwtKey = process.env.jwtKey;
+
 
 const salt = bcrypt.genSaltSync(10);
 
@@ -20,7 +20,7 @@ export const SignIn = async (req, res, next) => {
         email: Joi.string().email().required(),
         password: Joi.string().min(3).required()
     });
-    
+
     const { error, value } = validationSchema.validate(req.body);
     if (error) {
         return next(createError(400, error.details[0].message));
@@ -43,8 +43,8 @@ export const SignIn = async (req, res, next) => {
 
         // Generate tokens
         const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-        const accessToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
-        const refreshToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const accessToken = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: '30d' });
+        const refreshToken = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: '30d' });
 
         // Set tokens in cookies
         res.cookie("accessToken", accessToken, cookieOptions());
@@ -54,12 +54,13 @@ export const SignIn = async (req, res, next) => {
         return res.status(200).json({
             success: true,
             message: "Login Successful",
-            userData: user, 
-            accessToken, 
+            userData: user,
+            accessToken,
             refreshToken
         });
     } catch (err) {
         // Handle unexpected errors
+        console.log(err);
         next(err);
     }
 };
@@ -101,9 +102,9 @@ export const signUp = async (req, res, next) => {
         }
 
         // Generate tokens for the user
-        const token = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const token = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: '30d' });
         const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-        const refreshToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const refreshToken = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: '30d' });
 
         // Set tokens in cookies
         res.cookie("accessToken", token, cookieOptions());
@@ -111,13 +112,14 @@ export const signUp = async (req, res, next) => {
 
         // Respond with user data and tokens
         return res.status(200).json({
-            success: true, 
-            userData: user, 
-            accessToken: token, 
+            success: true,
+            userData: user,
+            accessToken: token,
             refreshToken
         });
     } catch (err) {
         // Handle unexpected errors
+        console.log(err);
         next(err);
     }
 };
@@ -143,7 +145,7 @@ export const refreshAccessToken = async (req, res, next) => {
 
     try {
         // Verifying the provided refresh token
-        const decodedRefreshToken = jwt.verify(refreshToken, process.env.JWT_KEY);
+        const decodedRefreshToken = jwt.verify(refreshToken, process.env.jwtKey);
         const user = await User.findById(decodedRefreshToken.userId);
 
         if (!user) {
@@ -151,15 +153,15 @@ export const refreshAccessToken = async (req, res, next) => {
         }
 
         // Generating a new access token
-        const accessToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const accessToken = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: '30d' });
 
         // Update the accessToken in cookies
         res.cookie("accessToken", accessToken, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
 
         // Respond with the new access token
         return res.status(200).json({
-            success: true, 
-            message: "Token refreshed successfully", 
+            success: true,
+            message: "Token refreshed successfully",
             accessToken
         });
     } catch (err) {
