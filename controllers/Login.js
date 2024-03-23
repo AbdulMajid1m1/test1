@@ -15,71 +15,83 @@ const salt = bcrypt.genSaltSync(10);
 
 
 export const SignIn = async (req, res, next) => {
-    // Validate request body
-    const value = Joi.object({
+    // Validate request payload
+    const validationSchema = Joi.object({
         email: Joi.string().email().required(),
         password: Joi.string().min(3).required()
-    }).validate(req.body)
-    if (value.error) {
-        return next(createError(400, value.error.details[0].message));
+    });
+    
+    const { error, value } = validationSchema.validate(req.body);
+    if (error) {
+        return next(createError(400, error.details[0].message));
     }
 
     try {
-
-        const { email, password } = req.body;
+        const { email, password } = value; // Use validated value
+        // Attempt to find the user by email
         const user = await User.findOne({ email: email.toLowerCase() });
 
         if (!user) {
             return next(createError(400, "User not found!"));
         }
 
-        // Check password validity
-        const isPasswordCorrect = bcrypt.compareSync(password, user.password);
+        // Asynchronously compare the password with the hashed password
+        const isPasswordCorrect = await bcrypt.compare(password, user.password);
         if (!isPasswordCorrect) {
             return next(createError(400, "Wrong credentials!"));
         }
-        const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000;
 
+        // Generate tokens
+        const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+        const accessToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const refreshToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
 
-        const accessToken = jwt.sign({ userId: user._id }, jwtKey, { expiresIn: '30d' });
-
-        const refreshToken = jwt.sign({ userId: user._id }, jwtKey, { expiresIn: refreshTokenExpiration });
-
-
+        // Set tokens in cookies
         res.cookie("accessToken", accessToken, cookieOptions());
         res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: refreshTokenExpiration });
 
-        return res.status(200).json({ success: true, message: "Login Successful", userData: user, token: accessToken });
-
+        // Respond with user data and tokens
+        return res.status(200).json({
+            success: true,
+            message: "Login Successful",
+            userData: user, 
+            accessToken, 
+            refreshToken
+        });
     } catch (err) {
+        // Handle unexpected errors
         next(err);
     }
 };
 
 export const signUp = async (req, res, next) => {
-    const value = Joi.object({
+    // Validate request payload
+    const validationSchema = Joi.object({
         email: Joi.string().email().required(),
         password: Joi.string().min(3).required(),
         username: Joi.string().required()
-    }).validate(req.body)
-    if (value.error) {
-        next(createError(400, value.error.details[0].message))
+    });
+
+    const { error, value } = validationSchema.validate(req.body);
+    if (error) {
+        return next(createError(400, error.details[0].message));
     }
+
     try {
-        const { email, password, username } = req.body
+        const { email, password, username } = value; // Use validated values
+        // Check if user already exists
         let user = await User.findOne({ email: email.toLowerCase() });
 
-        if (user) {
-            if (!user.password) {
-                // User has logged in using Google/Facebook earlier, so set local password
-                user.password = bcrypt.hashSync(password, salt);
-                await user.save();
-            } else {
-                return next(createError(400, "Email already exists"));
-            }
+        if (user && user.password) {
+            // User exists and has a password already
+            return next(createError(400, "Email already exists"));
+        } else if (user && !user.password) {
+            // User exists without a password (e.g., signed up via social login)
+            user.password = await bcrypt.hash(password, parseInt(process.env.SALT_ROUNDS));
+            await user.save();
         } else {
-            // Create a new user
-            const hash = bcrypt.hashSync(password, salt);
+            // New user creation
+            const hash = await bcrypt.hash(password, parseInt(process.env.SALT_ROUNDS));
             user = new User({
                 email: email.toLowerCase(),
                 password: hash,
@@ -88,20 +100,35 @@ export const signUp = async (req, res, next) => {
             await user.save();
         }
 
-        const token = jwt.sign({ ...userDataProperties(user) }, jwtKey, { expiresIn: '30d' });
-        return res.cookie("accessToken", token, cookieOptions()).status(200).json({ success: true, userData: user, token });
+        // Generate tokens for the user
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
+        const refreshTokenExpiration = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+        const refreshToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
 
+        // Set tokens in cookies
+        res.cookie("accessToken", token, cookieOptions());
+        res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: refreshTokenExpiration });
+
+        // Respond with user data and tokens
+        return res.status(200).json({
+            success: true, 
+            userData: user, 
+            accessToken: token, 
+            refreshToken
+        });
     } catch (err) {
+        // Handle unexpected errors
         next(err);
     }
-}
+};
 
-export const get = async (req, res) => {
+
+export const getUser = async (req, res, next) => {
     try {
         const users = await User.find();
         return res.status(200).json({ success: true, users });
     } catch (err) {
-        // next(err);
+        next(err);
         console.log(err);
     }
 }
@@ -109,194 +136,38 @@ export const get = async (req, res) => {
 const tokenExpiration = 30 * 24 * 60 * 60 * 1000;
 
 export const refreshAccessToken = async (req, res, next) => {
-    const refreshToken = req.cookies.refreshToken;
-
-    console.log("Refresh Token:", refreshToken);
-
-    if (!refreshToken) return next(createError(400, "Refresh token not provided"));
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+        return next(createError(400, "Refresh token not provided"));
+    }
 
     try {
-        const decodedRefreshToken = jwt.verify(refreshToken, process.env.jwtKey);
-
-        console.log("Decoded Refresh Token:", decodedRefreshToken);
-
+        // Verifying the provided refresh token
+        const decodedRefreshToken = jwt.verify(refreshToken, process.env.JWT_KEY);
         const user = await User.findById(decodedRefreshToken.userId);
-        console.log("User:", user);
 
-        if (!user) return next(createError(400, "User not found!"));
+        if (!user) {
+            return next(createError(400, "User not found!"));
+        }
 
-        const accessToken = jwt.sign({ userId: user._id }, process.env.jwtKey, { expiresIn: tokenExpiration });
+        // Generating a new access token
+        const accessToken = jwt.sign({ userId: user._id }, process.env.JWT_KEY, { expiresIn: '30d' });
 
-        res.cookie("accessToken", accessToken, { httpOnly: true, maxAge: tokenExpiration });
+        // Update the accessToken in cookies
+        res.cookie("accessToken", accessToken, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 });
 
-        return res.status(200).json({ success: true, message: "Token refreshed successfully" });
+        // Respond with the new access token
+        return res.status(200).json({
+            success: true, 
+            message: "Token refreshed successfully", 
+            accessToken
+        });
     } catch (err) {
         console.error(err);
         return next(createError(400, "Invalid refresh token"));
     }
 };
 
-// export const getUrlData = async (req, res) => {
-//     const { url } = req.body;
-
-//     if (!url) {
-//         return res.status(400).send('URL is required');
-//     }
-
-//     try {
-//         const response = await axios.get(url);
-//         const $ = cheerio.load(response.data);
-
-//         // Extract and clean text from the HTML
-//         const text = $('body').text()
-//                               .replace(/\s\s+/g, ' ') // Replace multiple spaces with a single space
-//                               .trim(); // Remove leading and trailing spaces
-
-//         res.send({ text: text });
-//     } catch (err) {
-//        console.log(err);
-//        res.status(400).send('Invalid URL');
-//     }
-// }
-// export const getUrlData = async (req, res) => {
-//     const { url } = req.body;
-
-//     if (!url) {
-//         return res.status(400).send('URL is required');
-//     }
-
-//     try {
-//         // Launch Puppeteer browser
-//         const browser = await puppeteer.launch({
-//             headless: 'new', // Opting in early to the new headless mode
-//             args: ['--no-sandbox', '--disable-setuid-sandbox'] // Recommended args for running in a non-interactive environment
-//         });
-
-//         const page = await browser.newPage();
-//         await page.goto(url, { waitUntil: 'networkidle2' });
-
-//         // Extract only the text content from the body or specific elements
-//         const textContent = await page.evaluate(() => {
-//             // You can modify this selector to be more specific if needed
-//             return document.querySelector('body').innerText;
-//         });
-
-//         // Close the browser
-//         await browser.close();
-
-//         res.send({ content: textContent });
-//     } catch (err) {
-//         console.log(err);
-//         res.status(400).send('Invalid URL');
-//     }
-// };
-
-
-
-
-// export const forgetPasswordStepOne = async (req, res, next) => {
-//     const value = Joi.object({
-//         email: Joi.string().email().required()
-//     }).validate(req.body)
-//     if (value.error) {
-//         // return res.status(400).json({ success: false, error: value.error.details[0].message })
-//         next(createError(400, value.error.details[0].message))
-//     }
-//     console.log(jwtKey)
-//     try {
-//         const user = await User.findOne({ email: req.body.email })
-
-//         if (user) {
-//             const otp = Math.floor(1000 + Math.random() * 9000);
-//             const token = jwt.sign({
-//                 id: user._id,
-//                 otp,
-//                 isVerified: false,
-//             }, jwtKey, { expiresIn: '30m' })
-
-//             await sendOTPEmail(req.body.email, otp)
-//             return res.status(200).json({ success: true, message: "OTP sent to your email", token })
-//         }
-//         else {
-//             next(createError(400, "Email not found!"))
-//         }
-//     }
-//     catch (err) {
-//         next(err)
-//     }
-
-// }
-
-// export const forgetPasswordStepTwo = async (req, res, next) => {
-//     // save token in local storag or any other way and send it in body
-//     const value = Joi.object({
-//         token: Joi.string(),
-//         otp: Joi.number().required()
-//     }).validate(req.body)
-//     if (value.error) {
-//         next(createError(400, value.error.details[0].message))
-//     }
-
-//     try {
-//         const { otp, token } = req.body
-//         const decoded = jwt.verify(token, jwtKey)
-//         // type of decoded.otp is?
-
-//         console.log(typeof decoded.otp + " " + typeof otp)
-//         if (String(decoded.otp) === String(otp)) {
-
-//             const newToken = jwt.sign({
-//                 id: decoded.id,
-//                 isVerified: true
-//             }, jwtKey, { expiresIn: '30d' });
-//             return res.status(200).json({ success: true, message: "OTP verified", token: newToken })
-//         }
-//         else {
-//             next(createError(400, "Wrong OTP"))
-//         }
-//     }
-//     catch (err) {
-//         next(err)
-//     }
-
-// }
-
-
-// export const resetPassword = async (req, res, next) => {
-//     const value = Joi.object({
-//         token: Joi.string(),
-//         password: Joi.string().min(3).required(),
-//     }).validate(req.body)
-//     if (value.error) {
-//         next(createError(400, value.error.details[0].message))
-//     }
-
-//     try {
-//         const { password, token } = req.body
-//         const hash = bcrypt.hashSync(password, salt);
-//         // const decoded = jwt.verify(req.headers.authorization, jwtKey)
-//         // decode the token
-//         const decoded = jwt.verify(token, jwtKey)
-//         console.log(decoded)
-
-//         if (!decoded.isVerified) {
-//             next(createError(400, "Please verify your email with OTP first"));
-//             return;
-//         }
-//         const user = await User.findOneAndUpdate({ _id: decoded.id }, { password: hash }, { new: true })
-//         if (user) {
-//             return res.status(200).json({ success: true, message: "Password reset successfully" })
-//         }
-//         else {
-//             next(createError(400, "User not found"))
-//         }
-//     }
-//     catch (err) {
-//         next(err)
-//     }
-
-
-// }
 
 export const logout = async (req, res, next) => {
     res
@@ -307,57 +178,4 @@ export const logout = async (req, res, next) => {
         .status(200)
         .send("User has been logged out.");
 };
-
-
-
-// export const handleGoogleCallback = async (req, res, next) => {
-//     try {
-//         const token = jwt.sign({ ...userDataProperties(req.user) }, jwtKey, { expiresIn: '30d' });
-//         const user = req.user;
-
-//         // Set or update googleId field
-//         user.googleId = req.user.id;
-
-//         await user.save();
-
-//         // return res.cookie("accessToken", token, cookieOptions()).redirect( `${AUTH_REDIRECT}`);
-//         const authResponse = {
-//             success: true,
-//             message: "Login Successful",
-//             userData: req.user,
-//             token,
-//         };
-
-//         // return res.cookie("accessToken", token, cookieOptions()).redirect( `${AUTH_REDIRECT}`);
-//         return res.cookie("accessToken", token, cookieOptions()).redirect(`${AUTH_REDIRECT}?userData=${encodeURIComponent(JSON.stringify(authResponse))}`);
-//     } catch (err) {
-//         next(err);
-//     }
-// };
-
-// export const handleFacebookCallback = async (req, res, next) => {
-//     try {
-//         const token = jwt.sign({ ...userDataProperties(req.user) }, jwtKey, { expiresIn: '30d' });
-//         const user = req.user;
-
-//         // Set or update facebookId field
-//         user.facebookId = req.user.id;
-
-//         await user.save();
-
-//         // Create the response data
-//         const authResponse = {
-//             success: true,
-//             message: "Login Successful",
-//             userData: req.user,
-//             token,
-//         };
-
-//         // return res.cookie("accessToken", token, cookieOptions()).redirect( `${AUTH_REDIRECT}`);
-//         return res.cookie("accessToken", token, cookieOptions()).redirect(`${AUTH_REDIRECT}?userData=${encodeURIComponent(JSON.stringify(authResponse))}`);
-//     } catch (err) {
-//         next(err);
-//     }
-// };
-
 
